@@ -1,33 +1,96 @@
+import argparse
+import os
 from pathlib import Path
+
+from dotenv import load_dotenv
 from google import genai
 from PIL import Image
+
 import geminiPrompts as p
 
-#export GEMINI_API_KEY=""
+load_dotenv()
 
-INPUT_FOLDER = Path("base_images")
-OUTPUT_FOLDER = Path("generated_images")
-MODEL_NAME = "gemini-2.5-flash-image"
-MAX_IMAGES = 50
+PROMPTS = {
+    "no_non": p.NO_NON_PROMPT,
+    "some_non": p.SOME_NON_PROMPT,
+    "most_non": p.MOST_NON_PROMPT,
+}
 
-PROMPT = p.MOST_NON_PROMPT #depends on whether the generated image is filled with participants, includes some non-participants, or includes mostly non-participants
-def main():
-    if not INPUT_FOLDER.exists():
-        raise FileNotFoundError(f"Input folder not found: {INPUT_FOLDER}")
+DEFAULT_OUTPUT_PREFIX = {
+    "no_non": "no_non_participants",
+    "some_non": "some_non_participants",
+    "most_non": "most_non_participants",
+}
 
-    OUTPUT_FOLDER.mkdir(parents=True, exist_ok=True)
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Generate participant/non-participant edited images with Gemini."
+    )
+    parser.add_argument(
+        "--input-folder",
+        type=Path,
+        default=Path("base_images"),
+        help="Folder containing source images.",
+    )
+    parser.add_argument(
+        "--output-folder",
+        type=Path,
+        default=Path("generated_images"),
+        help="Folder where generated images will be written.",
+    )
+    parser.add_argument(
+        "--prompt",
+        choices=sorted(PROMPTS),
+        default="most_non",
+        help="Prompt scenario to use.",
+    )
+    parser.add_argument(
+        "--output-prefix",
+        help="Filename prefix for generated images. Defaults to the prompt scenario.",
+    )
+    parser.add_argument(
+        "--model",
+        default="gemini-2.5-flash-image",
+        help="Gemini image model name.",
+    )
+    parser.add_argument(
+        "--max-images",
+        type=int,
+        default=50,
+        help="Maximum number of source images to process.",
+    )
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    input_folder = args.input_folder
+    output_folder = args.output_folder
+    prompt = PROMPTS[args.prompt]
+    output_prefix = args.output_prefix or DEFAULT_OUTPUT_PREFIX[args.prompt]
+
+    if not os.environ.get("GEMINI_API_KEY"):
+        raise RuntimeError(
+            "Missing GEMINI_API_KEY. Set it in the environment or in a local .env file."
+        )
+
+    if not input_folder.exists():
+        raise FileNotFoundError(f"Input folder not found: {input_folder}")
+
+    output_folder.mkdir(parents=True, exist_ok=True)
 
     client = genai.Client()
 
     valid_exts = {".png", ".jpg", ".jpeg", ".webp"}
     image_paths = sorted(
-        p for p in INPUT_FOLDER.iterdir()
-        if p.is_file() and p.suffix.lower() in valid_exts
-    )[:MAX_IMAGES]
+        path for path in input_folder.iterdir()
+        if path.is_file() and path.suffix.lower() in valid_exts
+    )[:args.max_images]
 
     if not image_paths:
         raise FileNotFoundError(
-            f"No supported images found in {INPUT_FOLDER}. "
+            f"No supported images found in {input_folder}. "
             f"Supported types: {', '.join(sorted(valid_exts))}"
         )
 
@@ -41,13 +104,11 @@ def main():
                 img = img.convert("RGB")
 
                 response = client.models.generate_content(
-                    model=MODEL_NAME,
-                    contents=[PROMPT, img],
+                    model=args.model,
+                    contents=[prompt, img],
                 )
 
-            #output_path = OUTPUT_FOLDER / f"no_non_participants_{i}.png"
-            #output_path = OUTPUT_FOLDER / f"some_non_participants_{i}.png"
-            output_path = OUTPUT_FOLDER / f"most_non_participants_{i}.png"
+            output_path = output_folder / f"{output_prefix}_{i:03d}.png"
             saved = False
 
             for part in response.parts:

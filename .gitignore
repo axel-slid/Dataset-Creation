@@ -1,8 +1,25 @@
+.DS_Store
 .env
-base_images
-all_bounding_boxes.json
-generated_images
+*.env
 gene.env
-venv/
+
+# Python
 __pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+venv/
+.venv/
+
+# Generated datasets and local model outputs
+base_images/
+generated_images/
 output/
+new_outputs/
+preview_boxes/
+all_bounding_boxes.json
+auto_boxes*.json
+cost_log.json
+labels.csv
+labels.json

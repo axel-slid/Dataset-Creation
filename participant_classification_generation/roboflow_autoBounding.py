@@ -1,44 +1,54 @@
+import argparse
 import os
 import json
 from pathlib import Path
+
+from dotenv import load_dotenv
 from inference_sdk import InferenceHTTPClient
-# On docker: inference server start 
-#export api key
 
-# -----------------------------
-# CONFIG
-# -----------------------------
-
-IMAGE_FOLDER = "generated_images/no_none"   # change this to your image folder
-OUTPUT_JSON = "auto_boxes_no.json"
-
-MODEL_ID = "find-human-heads/1"  # detects people
-CONFIDENCE_THRESHOLD = 0.6
+load_dotenv()
 
 VALID_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 
 
-# -----------------------------
-# SETUP CLIENT
-# -----------------------------
-
-api_key = os.getenv("ROBOFLOW_API_KEY")
-
-if not api_key:
-    raise RuntimeError(
-        "Missing ROBOFLOW_API_KEY. Run:\n"
-        "export ROBOFLOW_API_KEY='your_key_here'"
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Generate automatic bounding boxes with a local Roboflow inference server."
     )
-
-client = InferenceHTTPClient(
-    api_url="http://localhost:9001",
-    api_key=api_key
-)
-
-
-# -----------------------------
-# HELPERS
-# -----------------------------
+    parser.add_argument(
+        "--image-folder",
+        type=Path,
+        default=Path("generated_images"),
+        help="Folder containing generated images.",
+    )
+    parser.add_argument(
+        "--output-json",
+        type=Path,
+        default=Path("auto_boxes.json"),
+        help="Path to write bounding box annotations.",
+    )
+    parser.add_argument(
+        "--model-id",
+        default="find-human-heads/1",
+        help="Roboflow model id.",
+    )
+    parser.add_argument(
+        "--api-url",
+        default="http://localhost:9001",
+        help="Roboflow inference server URL.",
+    )
+    parser.add_argument(
+        "--confidence-threshold",
+        type=float,
+        default=0.6,
+        help="Minimum confidence score to keep a prediction.",
+    )
+    parser.add_argument(
+        "--role",
+        default="participant",
+        help="Role assigned to each generated person annotation.",
+    )
+    return parser.parse_args()
 
 def convert_bbox(pred):
     """
@@ -83,19 +93,32 @@ def get_predictions(result):
 # MAIN SCRIPT
 # -----------------------------
 
-def main():
-    image_folder = Path(IMAGE_FOLDER)
+def main() -> None:
+    args = parse_args()
+    image_folder = args.image_folder
+
+    api_key = os.getenv("ROBOFLOW_API_KEY")
+    if not api_key:
+        raise RuntimeError(
+            "Missing ROBOFLOW_API_KEY. Run:\n"
+            "export ROBOFLOW_API_KEY='your_key_here'"
+        )
+
+    client = InferenceHTTPClient(
+        api_url=args.api_url,
+        api_key=api_key,
+    )
 
     if not image_folder.exists():
-        raise FileNotFoundError(f"Image folder not found: {IMAGE_FOLDER}")
+        raise FileNotFoundError(f"Image folder not found: {image_folder}")
 
     output_data = []
 
     image_files = sorted(
-    [file for file in image_folder.iterdir()
-     if file.suffix.lower() in VALID_EXTENSIONS],
-    key=lambda x: x.name
-)
+        [file for file in image_folder.iterdir()
+         if file.suffix.lower() in VALID_EXTENSIONS],
+        key=lambda path: path.name,
+    )
 
     print(f"Found {len(image_files)} images.")
 
@@ -104,7 +127,7 @@ def main():
 
         result = client.infer(
             inference_input=str(image_path),
-            model_id=MODEL_ID
+            model_id=args.model_id,
         )
 
         predictions = get_predictions(result)
@@ -116,7 +139,7 @@ def main():
 
             confidence = pred.get("confidence", 0)
 
-            if confidence < CONFIDENCE_THRESHOLD:
+            if confidence < args.confidence_threshold:
                 continue
 
             bbox = convert_bbox(pred)
@@ -124,7 +147,7 @@ def main():
             people.append({
                 "id": i,
                 "bbox": bbox,
-                "role": "participant",
+                "role": args.role,
                 "confidence": round(confidence, 4)
             })
 
@@ -135,10 +158,11 @@ def main():
 
         print(f"  Found {len(people)} people.")
 
-    with open(OUTPUT_JSON, "w") as f:
+    args.output_json.parent.mkdir(parents=True, exist_ok=True)
+    with open(args.output_json, "w") as f:
         json.dump(output_data, f, indent=2)
 
-    print(f"\nDone! Saved results to {OUTPUT_JSON}")
+    print(f"\nDone! Saved results to {args.output_json}")
 
 
 if __name__ == "__main__":

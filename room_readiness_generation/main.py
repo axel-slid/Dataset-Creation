@@ -9,11 +9,11 @@ Generates labeled training/eval images using the Gemini API across 4 subtasks:
   - Tables       (clean / cluttered)
 
 Base images:
-  base_images/meeting_room/   → 10 images
-  base_images/open_space/     → 10 images
+  base_images/meeting_room/   -> 25 images
+  base_images/open_space/     -> 25 images
 
 Each base image produces 8 output images (4 subtasks × 2 variants).
-Total output: 20 base images × 8 = 160 images.
+Total output: 50 base images × 8 = 400 images.
 
 Usage:
   GEMINI_API_KEY=<key> python main.py [--dry-run] [--subtask whiteboard|chairs|blinds|tables]
@@ -30,8 +30,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from google import genai
-from google.genai import types
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -192,11 +190,13 @@ class CostSummary:
 # Gemini helpers
 # ---------------------------------------------------------------------------
 
-_client: genai.Client | None = None
+_client: object | None = None
 
 
 def init_client(api_key: str) -> None:
     global _client
+    from google import genai
+
     _client = genai.Client(api_key=api_key)
 
 
@@ -229,6 +229,8 @@ def generate_variant(
         return 100, 10, 1, None
 
     try:
+        from google.genai import types
+
         assert _client is not None
         suffix = base_path.suffix.lower().lstrip(".")
         mime = f"image/{'jpeg' if suffix in ('jpg', 'jpeg') else suffix}"
@@ -303,13 +305,13 @@ def run_pipeline(
                     prompt = PROMPTS[subtask][variant_key]
                     label  = VARIANT_LABELS[subtask][variant_key]
                     out_name = f"{base_stem}__{label}{base_path.suffix}"
-                    out_path = OUTPUT_DIR / room_type / subtask / out_name
+                    out_path = OUTPUT_DIR / room_type / label / out_name
 
                     # Dirty variant is based on the clean variant's output
                     if variant_key == dirty_key:
                         clean_label    = VARIANT_LABELS[subtask][clean_key]
                         clean_out_name = f"{base_stem}__{clean_label}{base_path.suffix}"
-                        input_path     = OUTPUT_DIR / room_type / subtask / clean_out_name
+                        input_path     = OUTPUT_DIR / room_type / clean_label / clean_out_name
                         if not input_path.exists():
                             err_msg = f"Clean GT image not found, skipping dirty variant: {input_path}"
                             logging.error(err_msg)

@@ -18,8 +18,6 @@ import os
 import time
 from pathlib import Path
 
-from google import genai
-from google.genai import types
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -106,11 +104,13 @@ PROMPTS = {
 # Helpers
 # ---------------------------------------------------------------------------
 
-_client: genai.Client | None = None
+_client: object | None = None
 
 
 def init_client(api_key: str) -> None:
     global _client
+    from google import genai
+
     _client = genai.Client(api_key=api_key)
 
 
@@ -123,6 +123,8 @@ def generate_image(prompt: str, output_path: Path, dry_run: bool = False) -> boo
         return True
 
     try:
+        from google.genai import types
+
         assert _client is not None
         response = _client.models.generate_content(
             model=MODEL,

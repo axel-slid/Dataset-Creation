@@ -19,8 +19,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-app = Flask(__name__)
-
 # ---------------------------------------------------------------------------
 # Config — mirrors main.py and generate_base_images.py
 # ---------------------------------------------------------------------------
@@ -30,6 +28,8 @@ MODEL = "gemini-2.5-flash-image"
 BASE_DIR    = Path(__file__).parent
 BASE_IMAGES = BASE_DIR / "base_images"
 OUTPUT_DIR  = BASE_DIR / "output"
+
+app = Flask(__name__, template_folder=str(BASE_DIR.parent / "templates"))
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 

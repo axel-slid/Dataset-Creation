@@ -1,52 +1,101 @@
-# room_readiness_generationRoom Readiness Dataset Generation: Process & Scalability
-Current State
-50 base images generated (25 meeting room, 25 open space) — sitting in base_images/
-0 variant images generated — output/ and new_outputs/ are empty; Stage 2 has not been run yet
-Pipeline Overview
+# Room Readiness Dataset Generation
 
-Stage 1: generate_base_images.py   →   base_images/{room_type}/*.png
-Stage 2: main.py                   →   output/{room_type}/{subtask}/{file}.png
-                                       output/labels.json, labels.csv, cost_log.json
-Stage 3: change_format.py          →   new_outputs/{category}/  (flat, ML-ready)
-Stage 1 — Base Image Generation (generate_base_images.py)
-What it does: Calls Gemini (gemini-2.5-flash-image) once per text prompt, saves a PNG.
+Creates paired synthetic room images for environment-monitoring tasks.
 
-Dataset size is controlled entirely by the prompt lists — there is no IMAGES_PER_TYPE constant; the docstring says "10" but the actual lists have 25 prompts each (50 total). The count is just len(MEETING_ROOM_PROMPTS) and len(OPEN_SPACE_PROMPTS).
+## Pipeline
 
-Rate: time.sleep(10) after every call → ~6 calls/min
-Time to regenerate 50 images: ~8 min
-Cost: 50 images × $0.039/image = ~$1.95 (token costs are negligible for text→image)
+Run commands from this folder:
 
-Stage 2 — Variant Generation (main.py)
-What it does: For every base image, runs 4 subtasks × 2 variants = 8 API calls per base image.
+```bash
+python generate_base_images.py
+python main.py
+python change_format.py
+```
 
-Subtask	Variant A	Variant B
-whiteboard	clean	dirty
-chairs	neat	messy
-blinds	up	down
-tables	clean	cluttered
-Important: Variant B is generated from Variant A's output (not the original), creating a guaranteed paired difference. If A fails, B is skipped.
+### Stage 1: Base Images
 
-output/meeting_room/whiteboard/meeting_room_01__whiteboard_clean.png
-output/meeting_room/whiteboard/meeting_room_01__whiteboard_dirty.png
-...
-output/labels.json   ← full metadata with token counts + cost per image
-output/labels.csv
-output/cost_log.json
-Stage 3 — Format Reorganization (change_format.py)
-Flattens the nested structure into category folders and generates per-category annotations.json. Purely local — no API calls, no cost. Run once after Stage 2.
+`generate_base_images.py` creates base room images with Gemini:
 
-Scalability Analysis
-Expansion levers and their cost/time:
+```text
+base_images/
+  meeting_room/meeting_room_01.png
+  open_space/open_space_01.png
+```
 
-Lever	What to change	New images	Added time	Added cost
-+25 more base images per type	Add 25 prompts to each list	+50 base, +400 variants	+8 min base, +67 min variants	+$1.95 + $16
-+1 new room type (25 images)	Add a third entry to OUT_DIRS/ROOM_TYPES	+25 base, +200 variants	+4 min base, +33 min variants	+$0.98 + $8
-+1 new subtask	Add entry to SUBTASKS and VARIANT_PROMPTS	+100 variants (for 50 base)	+17 min	+$4
-+1 new variant within a subtask	Extend variant prompt dict	+50 images	+8 min	+$2
-The dominant cost driver is $0.039/output image — token costs are small by comparison (~$0.001/call).
+The current prompt lists contain 25 meeting-room prompts and 25 open-space prompts, for 50 base images total.
 
-Can We Expand with Available Resources?
-Yes, with the following constraints:
+Useful command:
 
-$25 for 400 images
+```bash
+python generate_base_images.py --dry-run
+```
+
+### Stage 2: Variant Images
+
+`main.py` creates paired variants for each base image:
+
+| Change type | Clean/reference state | Changed state |
+| --- | --- | --- |
+| `whiteboard` | `whiteboard_clean` | `whiteboard_dirty` |
+| `chairs` | `chairs_neat` | `chairs_messy` |
+| `blinds` | `blinds_up` | `blinds_down` |
+| `tables` | `tables_clean` | `tables_cluttered` |
+
+Each base image produces 8 variant images, so the current 50 base images produce up to 400 variants.
+
+Output layout:
+
+```text
+output/
+  meeting_room/
+    chairs_neat/meeting_room_01__chairs_neat.png
+    chairs_messy/meeting_room_01__chairs_messy.png
+  labels.json
+  labels.csv
+  cost_log.json
+```
+
+The changed state is generated from the clean/reference state for that subtask. For example, `chairs_messy` is generated from `chairs_neat`, not directly from the original base image.
+
+Useful commands:
+
+```bash
+python main.py --dry-run
+python main.py --subtask chairs
+python main.py --subtask chairs --dry-run
+```
+
+### Stage 3: ML-Ready Format
+
+`change_format.py` flattens `output/` into category folders:
+
+```text
+new_outputs/
+  blinds/annotations.json
+  chairs/annotations.json
+  originals/
+  tables/annotations.json
+  whiteboard/annotations.json
+```
+
+This stage is local only and does not call an API.
+
+## Interactive UI
+
+```bash
+python app.py
+```
+
+Open the Flask URL printed in the terminal, usually `http://127.0.0.1:5000`.
+
+## Cost and Timing
+
+The scripts sleep for 10 seconds after each API call, or about 6 calls per minute.
+
+Approximate current run:
+
+- Base images: 50 calls, about 8 minutes.
+- Variants: 400 calls, about 67 minutes.
+- Image generation cost estimate: about `450 * $0.039 = $17.55`, plus small token costs.
+
+Use `--dry-run` before paid runs to verify folder layout and labels.
